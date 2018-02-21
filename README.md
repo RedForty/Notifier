@@ -16,3 +16,5 @@ dkAutoKey.activate()
 # Turn it off
 dkAutoKey.deactivate()
 ```
+
+![Example](https://i.imgur.com/dPgfW1G.png)
