@@ -3,8 +3,12 @@
 from maya import cmds, mel
 import maya.api.OpenMaya as api
 import maya.api.OpenMayaUI as apiUI
-from Qt import QtCore, QtGui, QtWidgets
-import shiboken
+from Qt import QtCore, QtGui, QtWidgets, __binding__
+
+if "PyQt" in __binding__:
+    import sip
+elif "PySide" in __binding__:
+    import shiboken
 
 #------------------------------------------------------------------------------#
 # GLOBALS
@@ -14,7 +18,7 @@ _Notifications = {}
 _AutokeyScriptJob = []
 
 #------------------------------------------------------------------------------#
-# Class 
+# Class
 #------------------------------------------------------------------------------#
 
 # class Notification(MayaQWidgetBaseMixin, QtWidgets.QLabel): # Old method
@@ -140,7 +144,7 @@ def deactivate():
     try: # Remove the current notifications
         _notificationsOFF()
     except:
-        print "No running scriptjobs detected."    
+        print "No running scriptjobs detected."
     try:
         for job in _AutokeyScriptJob:
             try:
@@ -153,10 +157,14 @@ def deactivate():
     api.MGlobal.displayWarning("AutoKey notifications disabled!")
 
 #------------------------------------------------------------------------------#
-# Functions 
+# Functions
 #------------------------------------------------------------------------------#
 
 def _notificationsON():
+    if cmds.autoKeyframe(state=True, query=True): # Just checking...
+        print "AutoKey is on. No notifications needed."
+        return
+
     global _Notifications
     # Get the panels
     panels = cmds.getPanel(type='modelPanel')
@@ -166,7 +174,7 @@ def _notificationsON():
             apiPanel = apiUI.M3dView.getM3dViewFromModelPanel(panel)
             # Wrap it
             try:
-                widget = _wrapinstance(long(apiPanel.widget()), QtWidgets.QWidget)
+                widget = _wrapinstance(apiPanel.widget(), QtWidgets.QWidget)
             except:
                 print "Something went wrong with the wrapper."
                 pass
@@ -175,27 +183,33 @@ def _notificationsON():
             # Show it
             notification.show()
             # Report it
-            # print "%s stashed." % panel
+            print "%s stashed." % panel
             # Store it
             _Notifications[panel] = [apiPanel, notification]
         except:
-            # print "%s does not have an M3dView." % panel
+            print "%s does not have an M3dView." % panel
             pass
+    print "Notifications on!"
 
 def _notificationsOFF():
+    # if cmds.autoKeyframe(state=False, query=True): # Just checking...
+    #     print "AutoKey is off. Leaving notifications on."
+    #     return
+
     global _Notifications
-    # print "Disabling notifications..."
+    print "Disabling notifications..."
     # Delete the notes
     for panel in _Notifications.keys():
         try:
             _Notifications[panel][1].close()
             _Notifications[panel][1].deleteLater()
             del _Notifications[panel]
-            # print "%s disabled" % panel
+            print "%s disabled" % panel
         except:
             del _Notifications[panel]
-            # print "%s no longer exists."
+            print "%s no longer exists."
             pass
+    print "Notifications off!"
 
 def _wrapinstance(ptr, base=None):
     """
@@ -211,9 +225,12 @@ def _wrapinstance(ptr, base=None):
     if ptr is None:
         return None
     ptr = long(ptr) #Ensure type
-    if globals().has_key('shiboken'):
+    if globals().has_key('sip') and "PyQt" in __binding__:
+        base = QtCore.QObject
+        return sip.wrapinstance(ptr, base)
+    elif globals().has_key('shiboken') and "PySide" in __binding__:
         if base is None:
-            qObj = shiboken.wrapInstance(long(ptr), QtCore.QObject)
+            qObj = shiboken.wrapInstance(ptr, QtCore.QObject)
             metaObj = qObj.metaObject()
             cls = metaObj.className()
             superCls = metaObj.superClass().className()
@@ -223,10 +240,7 @@ def _wrapinstance(ptr, base=None):
                 base = getattr(QtGui, superCls)
             else:
                 base = QtGui.QWidget
-        return shiboken.wrapInstance(long(ptr), base)
-    elif globals().has_key('sip'):
-        base = QtCore.QObject
-        return sip.wrapinstance(long(ptr), base)
+        return shiboken.wrapInstance(ptr, base)
     else:
         return None
 
