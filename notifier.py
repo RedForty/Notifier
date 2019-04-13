@@ -2,13 +2,15 @@
 
 from maya import cmds, mel
 import maya.api.OpenMaya as api
-import maya.api.OpenMayaUI as apiUI
+import maya.api.OpenMayaUI as apu
 from Qt import QtCore, QtGui, QtWidgets, __binding__
 
 if "PyQt" in __binding__:
     import sip
-elif "PySide" in __binding__:
-    import shiboken
+elif "PySide" == __binding__:
+    import shiboken as shiboken  # Do Pyside 
+elif "PySide2" == __binding__:
+    import shiboken2 as shiboken # You're on Maya 2018, aren't you?
 
 #------------------------------------------------------------------------------#
 # GLOBALS
@@ -28,6 +30,7 @@ class Notification(QtWidgets.QLabel):
         super(Notification, self).__init__(parent = parent)
         #QtWidgets.QLabel.__init__(self)
         self.parent = parent
+        self.debug = False
         self.border_thickness = 6
         self.button_width = 100
         self.button_height = 16
@@ -133,6 +136,9 @@ class RefreshFilter(QtCore.QObject):
 
 def activate():
     global _AutokeyScriptJob
+    if _AutokeyScriptJob:
+        print "Notifier already running!"
+        return
     _ScriptJobOFF = cmds.scriptJob(ct=["autoKeyframeState", _notificationsOFF])
     _AutokeyScriptJob.append(_ScriptJobOFF)
     _ScriptJobON  = cmds.scriptJob(cf=["autoKeyframeState", _notificationsON])
@@ -160,18 +166,21 @@ def deactivate():
 # Functions
 #------------------------------------------------------------------------------#
 
-def _notificationsON():
-    if cmds.autoKeyframe(state=True, query=True): # Just checking...
-        print "AutoKey is on. No notifications needed."
-        return
+def _notificationsON(overrideText = None):
+    # if cmds.autoKeyframe(state=True, query=True): # Just checking...
+    #     print "AutoKey is on. No notifications needed."
+    #     return
 
     global _Notifications
+    if _Notifications:
+        return  # Bounce if they are already on
+
     # Get the panels
     panels = cmds.getPanel(type='modelPanel')
     for panel in panels:
         try:
             # Get the m3dview
-            apiPanel = apiUI.M3dView.getM3dViewFromModelPanel(panel)
+            apiPanel = apu.M3dView.getM3dViewFromModelPanel(panel)
             # Wrap it
             try:
                 widget = _wrapinstance(apiPanel.widget(), QtWidgets.QWidget)
@@ -180,16 +189,15 @@ def _notificationsON():
                 pass
             # Instance a dknotification on it
             notification = Notification(widget)
+            if overrideText:
+                notification.buttonText = overrideText
             # Show it
             notification.show()
-            # Report it
-            print "%s stashed." % panel
             # Store it
             _Notifications[panel] = [apiPanel, notification]
         except:
             print "%s does not have an M3dView." % panel
             pass
-    print "Notifications on!"
 
 def _notificationsOFF():
     # if cmds.autoKeyframe(state=False, query=True): # Just checking...
@@ -197,19 +205,19 @@ def _notificationsOFF():
     #     return
 
     global _Notifications
-    print "Disabling notifications..."
+    # print "Disabling notifications..."
     # Delete the notes
     for panel in _Notifications.keys():
         try:
             _Notifications[panel][1].close()
             _Notifications[panel][1].deleteLater()
             del _Notifications[panel]
-            print "%s disabled" % panel
+            # print "%s disabled" % panel
         except:
             del _Notifications[panel]
             print "%s no longer exists."
             pass
-    print "Notifications off!"
+    # print "Notifications off!"
 
 def _wrapinstance(ptr, base=None):
     """
