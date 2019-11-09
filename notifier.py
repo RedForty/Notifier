@@ -2,13 +2,13 @@
 
 from maya import cmds, mel
 import maya.api.OpenMaya as api
-import maya.api.OpenMayaUI as apu
-from Qt import QtCore, QtGui, QtWidgets, __binding__
+import maya.api.OpenMayaUI as apiui
+from Qt import QtCore, QtGui, QtWidgets, QtCompat, __binding__
 
 if "PyQt" in __binding__:
     import sip
 elif "PySide" == __binding__:
-    import shiboken as shiboken  # Do Pyside 
+    import shiboken as shiboken  # Do Pyside
 elif "PySide2" == __binding__:
     import shiboken2 as shiboken # You're on Maya 2018, aren't you?
 
@@ -24,12 +24,13 @@ _AutokeyScriptJob = []
 #------------------------------------------------------------------------------#
 
 # class Notification(MayaQWidgetBaseMixin, QtWidgets.QLabel): # Old method
-class Notification(QtWidgets.QLabel):
+class Notification(QtWidgets.QWidget):
     """ Will draw a border around any widget you give it """
-    def __init__(self, parent = None):
-        super(Notification, self).__init__(parent = parent)
+    def __init__(self, parent):
+        super(Notification, self).__init__(parent)
         #QtWidgets.QLabel.__init__(self)
-        self.parent = parent
+        self.setParent(parent)
+        self._parent = parent
         self.debug = False
         self.border_thickness = 6
         self.button_width = 100
@@ -41,21 +42,22 @@ class Notification(QtWidgets.QLabel):
                         'East' : None,
                         'South': None,
                         'West' : None}
-        self.button_style = "background: rgb(255, 20, 60); \
-                             border: 0px; \
-                             text-align: center; \
-                             color: white; \
-                             font-weight: bold; \
-                             "
+        self.button_style = """
+                            background: rgb(255, 20, 60);
+                            border: 0px;
+                            text-align: center;
+                            color: white;
+                            font-weight: bold;
+                            """
         self.refresh_filter = RefreshFilter(self) # How QT handles events
 
     def _install_buttons(self):
         for btn in self.buttons:
-            self.buttons[btn] = QtWidgets.QPushButton(parent = self.parent)
+            self.buttons[btn] = QtWidgets.QPushButton(self._parent)
             self.buttons[btn].setStyleSheet(self.button_style)
             self.buttons[btn].show()
         for lbl in self.labels:
-            self.labels[lbl] = QtWidgets.QPushButton(parent = self.parent)
+            self.labels[lbl] = QtWidgets.QPushButton(self._parent)
             self.labels[lbl].setStyleSheet(self.button_style)
             self.labels[lbl].setText(self.buttonText)
             self.labels[lbl].show()
@@ -81,40 +83,35 @@ class Notification(QtWidgets.QLabel):
     def _refresh_buttons(self):
         self.buttons['North'].setGeometry(0,
                                           0,
-                                          self.parent.frameSize().width(),
+                                          self._parent.frameSize().width(),
                                           self.border_thickness)
-        self.buttons['East'].setGeometry( self.parent.frameSize().width() - \
+        self.buttons['East'].setGeometry( self._parent.frameSize().width() - \
                                           self.border_thickness,
                                           0,
                                           self.border_thickness,
-                                          self.parent.frameSize().height())
+                                          self._parent.frameSize().height())
         self.buttons['South'].setGeometry(0,
-                                          self.parent.frameSize().height() - \
+                                          self._parent.frameSize().height() - \
                                           self.border_thickness,
-                                          self.parent.frameSize().width(),
+                                          self._parent.frameSize().width(),
                                           self.border_thickness)
         self.buttons['West'].setGeometry( 0,
                                           0,
                                           self.border_thickness,
-                                          self.parent.frameSize().height())
-        self.labels['Label'].setGeometry( self.parent.frameSize().width()/2 - \
+                                          self._parent.frameSize().height())
+        self.labels['Label'].setGeometry( self._parent.frameSize().width()/2 - \
                                           self.button_width/2,
                                           0,
                                           self.button_width,
                                           self.button_height)
 
-
-    def showEvent(self, event):
+    def activate(self):
         self._install_buttons()
-        self.parent.installEventFilter(self.refresh_filter)
+        self._parent.installEventFilter(self.refresh_filter)
 
     def closeEvent(self, event):
         self._uninstall_buttons()
-        self.parent.removeEventFilter(self.refresh_filter)
-
-    def hideEvent(self, event):
-        self._uninstall_buttons()
-        self.parent.removeEventFilter(self.refresh_filter)
+        self._parent.removeEventFilter(self.refresh_filter)
 
 
 class RefreshFilter(QtCore.QObject):
@@ -123,11 +120,11 @@ class RefreshFilter(QtCore.QObject):
     """
     def __init__(self, parent):
         super(RefreshFilter, self).__init__()
-        self.parent = parent
+        self._parent = parent
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Resize:
-            self.parent._refresh_buttons()
+            self._parent._refresh_buttons()
         return QtCore.QObject.eventFilter(self, obj, event)
 
 #------------------------------------------------------------------------------#
@@ -180,19 +177,21 @@ def _notificationsON(overrideText = None):
     for panel in panels:
         try:
             # Get the m3dview
-            apiPanel = apu.M3dView.getM3dViewFromModelPanel(panel)
+            apiPanel = apiui.M3dView.getM3dViewFromModelPanel(panel)
             # Wrap it
             try:
-                widget = _wrapinstance(apiPanel.widget(), QtWidgets.QWidget)
+                widget = QtCompat.wrapInstance(apiPanel.widget(), QtWidgets.QWidget)
             except:
                 print "Something went wrong with the wrapper."
                 pass
             # Instance a dknotification on it
             notification = Notification(widget)
+
             if overrideText:
                 notification.buttonText = overrideText
             # Show it
-            notification.show()
+            notification.activate()
+
             # Store it
             _Notifications[panel] = [apiPanel, notification]
         except:
@@ -219,37 +218,4 @@ def _notificationsOFF():
             pass
     # print "Notifications off!"
 
-def _wrapinstance(ptr, base=None):
-    """
-    Utility to convert a pointer to a Qt class instance (PySide/PyQt compatible)
-
-    :param ptr: Pointer to QObject in memory
-    :type ptr: long or Swig instance
-    :param base: (Optional) Base class to wrap with (Defaults to QObject, which should handle anything)
-    :type base: QtGui.QWidget
-    :return: QWidget or subclass instance
-    :rtype: QtGui.QWidget
-    """
-    if ptr is None:
-        return None
-    ptr = long(ptr) #Ensure type
-    if globals().has_key('sip') and "PyQt" in __binding__:
-        base = QtCore.QObject
-        return sip.wrapinstance(ptr, base)
-    elif globals().has_key('shiboken') and "PySide" in __binding__:
-        if base is None:
-            qObj = shiboken.wrapInstance(ptr, QtCore.QObject)
-            metaObj = qObj.metaObject()
-            cls = metaObj.className()
-            superCls = metaObj.superClass().className()
-            if hasattr(QtGui, cls):
-                base = getattr(QtGui, cls)
-            elif hasattr(QtGui, superCls):
-                base = getattr(QtGui, superCls)
-            else:
-                base = QtGui.QWidget
-        return shiboken.wrapInstance(ptr, base)
-    else:
-        return None
-
-
+# EoF
