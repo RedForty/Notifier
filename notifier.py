@@ -756,10 +756,11 @@ def activate():
         return
 
     # Create scriptJobs for autokey monitoring
+    # conditionTrue: fires when autokey turns ON -> hide notifications
     job_on = cmds.scriptJob(
-        event=["autoKeyframeState", lambda: _on_autokey_changed(True)],
         conditionTrue=["autoKeyframeState", lambda: _on_autokey_changed(True)]
     )
+    # conditionFalse: fires when autokey turns OFF -> show notifications
     job_off = cmds.scriptJob(
         conditionFalse=["autoKeyframeState", lambda: _on_autokey_changed(False)]
     )
