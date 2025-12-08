@@ -9,20 +9,24 @@ Perfect for animators who need visual alerts when important states change, like 
 ## Features
 
 - **Stacking notifications** - Multiple notifications nest inside each other
+- **Automatic state monitoring** - AutoKey, Scene Save, Undo state, and more
 - **Custom notification types** - Register your own notifications with custom text and colors
 - **Per-viewport display** - Each 3D viewport gets its own notification stack
 - **Persistent settings** - Colors and preferences are saved between sessions
-- **Options UI** - Configure notifications through a visual dialog
-- **No ghost widgets** - Clean implementation that won't conflict with other viewport tools
+- **Options UI** - Configure monitors and notifications through a visual dialog
 
 ---
 
 ## Installation
 
-Place `notifier.py` in your Maya scripts folder:
+Place the `notifier` folder in your Maya scripts folder:
 
 ```
-~/maya/scripts/notifier.py
+~/maya/scripts/notifier/
+    ├── __init__.py
+    ├── core.py
+    ├── monitors.py
+    └── ui.py
 ```
 
 ---
@@ -31,10 +35,20 @@ Place `notifier.py` in your Maya scripts folder:
 
 Create shelf buttons with the following Python code:
 
-**Activate:**
+**Activate (with default AutoKey monitor):**
 ```python
 import notifier
 notifier.activate()
+```
+
+**Activate with multiple monitors:**
+```python
+import notifier
+notifier.activate(monitor_ids=[
+    "autokey_monitor",
+    "scene_save_monitor",
+    "undo_monitor"
+])
 ```
 
 **Deactivate:**
@@ -51,63 +65,82 @@ notifier.show_options()
 
 ---
 
+## Available Monitors
+
+| Monitor ID | Description |
+|------------|-------------|
+| `autokey_monitor` | Shows notification when AutoKey is disabled |
+| `scene_save_monitor` | Shows notification while scene is being saved |
+| `undo_monitor` | Shows notification when Undo queue is disabled |
+| `new_scene_monitor` | Shows notification when scene has unsaved changes |
+
+---
+
 ## API Reference
 
-### Core Functions
+### Activation
 
-#### `activate()`
-Start the notification system. Sets up monitoring for state changes (e.g., AutoKey).
+#### `activate(monitor_ids=None)`
+Start the notification system with specified monitors.
 
 ```python
-import notifier
+# Default - just AutoKey monitoring
 notifier.activate()
+
+# Multiple monitors
+notifier.activate(monitor_ids=["autokey_monitor", "scene_save_monitor"])
 ```
 
 #### `deactivate()`
 Stop the notification system and remove all notifications.
 
-```python
-notifier.deactivate()
-```
-
 #### `is_active()`
 Check if the notification system is currently active.
 
+---
+
+### Monitor Management
+
+#### `install_monitor(monitor_id)`
+Install a specific state monitor.
+
 ```python
-if notifier.is_active():
-    print("Notifier is running")
+notifier.install_monitor("scene_save_monitor")
 ```
+
+#### `uninstall_monitor(monitor_id)`
+Uninstall a specific state monitor.
+
+```python
+notifier.uninstall_monitor("scene_save_monitor")
+```
+
+#### `get_available_monitors()`
+Get a list of all available monitor IDs.
+
+#### `get_installed_monitors()`
+Get a list of currently installed monitor IDs.
 
 ---
 
-### Notification Management
+### Manual Notification Control
 
 #### `register(type_id, text, color, enabled=True)`
-Register a new notification type. Call this before using `show()`.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type_id` | str | Unique identifier for this notification |
-| `text` | str | Message displayed in the notification label |
-| `color` | tuple | RGB color, e.g., `(255, 20, 60)` |
-| `enabled` | bool | Whether this notification is enabled (default: True) |
+Register a custom notification type.
 
 ```python
-# Register custom notification types
-notifier.register("undo", text="Undo is OFF", color=(255, 165, 0))
-notifier.register("saving", text="Scene Saving...", color=(255, 200, 0))
-notifier.register("reference", text="Unloaded References", color=(100, 150, 255))
+notifier.register("custom", text="Custom Alert", color=(100, 200, 255))
 ```
 
 #### `show(type_id)`
-Display a notification on all viewports. The notification must be registered first.
+Manually display a notification.
 
 ```python
 notifier.show("saving")
 ```
 
 #### `hide(type_id)`
-Remove a notification from all viewports.
+Manually hide a notification.
 
 ```python
 notifier.hide("saving")
@@ -118,72 +151,29 @@ notifier.hide("saving")
 ### Options UI
 
 #### `show_options()`
-Open the configuration dialog to customize notifications.
+Open the configuration dialog.
 
-```python
-notifier.show_options()
-```
-
-The dialog allows you to:
-- Enable/disable notification types
-- Change notification messages
-- Pick custom colors
+The dialog has two tabs:
+- **Monitors** - Enable/disable automatic state monitoring
+- **Appearance** - Customize colors and messages for each notification type
 
 ---
 
-### Convenience Functions
+## Architecture
 
-#### `notify_saving(show_notification=True)`
-Quick toggle for a "Scene Saving..." notification.
-
-```python
-# Before saving
-notifier.notify_saving(True)
-
-# After saving
-notifier.notify_saving(False)
+```
+notifier/
+├── __init__.py   # Public API
+├── core.py       # Notification display engine
+├── monitors.py   # Maya state monitors
+└── ui.py         # Options dialog
 ```
 
-#### `notify_undo_off(show_notification=True)`
-Quick toggle for an "Undo is OFF" notification.
-
-```python
-notifier.notify_undo_off(True)   # Show
-notifier.notify_undo_off(False)  # Hide
-```
-
----
-
-## Example: Custom Pipeline Integration
-
-```python
-import notifier
-
-# Register your studio's notification types at startup
-notifier.register("autokey", text="AutoKey is OFF", color=(255, 20, 60))
-notifier.register("undo", text="Undo Disabled", color=(255, 165, 0))
-notifier.register("saving", text="Saving Scene...", color=(255, 200, 0))
-notifier.register("publishing", text="Publishing...", color=(100, 200, 255))
-
-# Activate the system
-notifier.activate()
-
-# In your save callback:
-def on_save_start():
-    notifier.show("saving")
-
-def on_save_end():
-    notifier.hide("saving")
-
-# In your publish tool:
-def publish_asset():
-    notifier.show("publishing")
-    try:
-        # ... publish logic ...
-        pass
-    finally:
-        notifier.hide("publishing")
-```
+**Separation of concerns:**
+- `core.py` handles all the Qt widget display logic - no Maya monitoring
+- `monitors.py` handles Maya callbacks - no display logic
+- `ui.py` provides the configuration interface
+- `__init__.py` ties everything together with a clean API
 
 ---
 
@@ -207,6 +197,30 @@ When multiple notifications are active, they nest like Russian dolls:
 ```
 
 When a notification is hidden, inner notifications automatically collapse outward to fill the gap.
+
+---
+
+## Creating Custom Monitors
+
+You can create your own monitors by subclassing `BaseMonitor`:
+
+```python
+from notifier.monitors import BaseMonitor
+
+class MyCustomMonitor(BaseMonitor):
+    MONITOR_ID = "my_monitor"
+    NOTIFICATION_ID = "my_notification"
+    DEFAULT_TEXT = "Something happened!"
+    DEFAULT_COLOR = (255, 100, 100)
+
+    def _install_callbacks(self):
+        # Set up your Maya callbacks here
+        pass
+
+    def _check_initial_state(self):
+        # Check state when monitor is first installed
+        pass
+```
 
 ---
 
