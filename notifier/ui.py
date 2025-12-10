@@ -65,16 +65,17 @@ class OptionsDialog(QtWidgets.QDialog):
         self._api = notifier_api
         self._config_store = notifier_api.get_config()
         self._monitor_widgets = {}
+        self._preview_notification_id = None
+        self._preview_original_color = None
 
         self.setObjectName(self.WINDOW_OBJECT_NAME)
         self.setWindowTitle(self.WINDOW_TITLE)
         self.setMinimumWidth(400)
         self.setMinimumHeight(450)
 
-        # Keep window on top of Maya but non-modal
+        # Use Qt.Tool flag - stays on top of parent window only, not all windows
         self.setWindowFlags(
-            QtCore.Qt.Window |
-            QtCore.Qt.WindowStaysOnTopHint |
+            QtCore.Qt.Tool |
             QtCore.Qt.WindowCloseButtonHint
         )
 
@@ -199,7 +200,6 @@ class OptionsDialog(QtWidgets.QDialog):
 
         color_btn.setStyleSheet("background: rgb({}, {}, {});".format(r, g, b))
 
-        # Fix: Use a wrapper function to avoid lambda issues
         color_btn.clicked.connect(
             lambda checked=False, mid=monitor_id: self._pick_color(mid)
         )
@@ -218,22 +218,88 @@ class OptionsDialog(QtWidgets.QDialog):
         }
 
     def _pick_color(self, monitor_id):
-        """Open color picker for a monitor's notification."""
+        """Open color picker with live preview in viewport."""
         widgets = self._monitor_widgets.get(monitor_id)
         if not widgets:
             return
 
-        current = widgets["color"]
-        initial = QtGui.QColor(current[0], current[1], current[2])
+        notification_id = widgets["notification_id"]
+        current_color = widgets["color"]
+        self._preview_original_color = current_color
 
-        color = QtWidgets.QColorDialog.getColor(initial, self, "Select Color")
-        if color.isValid():
+        # Ensure notification is registered so we can show it
+        self._api.register(
+            notification_id,
+            text=widgets["text"].text(),
+            color=current_color,
+            enabled=True
+        )
+
+        # Show the notification as a preview
+        self._preview_notification_id = notification_id
+        self._api.show(notification_id)
+
+        # Create color dialog with live preview
+        color_dialog = QtWidgets.QColorDialog(self)
+        color_dialog.setCurrentColor(
+            QtGui.QColor(current_color[0], current_color[1], current_color[2])
+        )
+        color_dialog.setOption(QtWidgets.QColorDialog.NoButtons, False)
+
+        # Connect to live color changes
+        color_dialog.currentColorChanged.connect(
+            lambda color, mid=monitor_id: self._on_preview_color_changed(mid, color)
+        )
+
+        # Show dialog and handle result
+        result = color_dialog.exec_()
+
+        if result == QtWidgets.QDialog.Accepted:
+            # User accepted - keep the new color
+            color = color_dialog.currentColor()
             new_color = (color.red(), color.green(), color.blue())
             widgets["color"] = new_color
             r, g, b = new_color
             widgets["color_btn"].setStyleSheet(
                 "background: rgb({}, {}, {});".format(r, g, b)
             )
+        else:
+            # User cancelled - restore original color
+            self._api.register(
+                notification_id,
+                text=widgets["text"].text(),
+                color=self._preview_original_color,
+                enabled=True
+            )
+            self._api.refresh_all()
+
+        # Hide the preview notification
+        self._api.hide(notification_id)
+        self._preview_notification_id = None
+        self._preview_original_color = None
+
+    def _on_preview_color_changed(self, monitor_id, color):
+        """Update the notification preview with the new color."""
+        if not color.isValid():
+            return
+
+        widgets = self._monitor_widgets.get(monitor_id)
+        if not widgets:
+            return
+
+        notification_id = widgets["notification_id"]
+        new_color = (color.red(), color.green(), color.blue())
+
+        # Update the notification registration with new color
+        self._api.register(
+            notification_id,
+            text=widgets["text"].text(),
+            color=new_color,
+            enabled=True
+        )
+
+        # Refresh to show the new color
+        self._api.refresh_all()
 
     def _on_apply(self):
         """Apply all changes."""
