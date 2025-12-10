@@ -73,11 +73,13 @@ class OptionsDialog(QtWidgets.QDialog):
         self.setMinimumWidth(400)
         self.setMinimumHeight(450)
 
-        # Use Qt.Tool flag - stays on top of parent window only, not all windows
+        # Qt.Dialog stays on top of parent window but not other applications
+        # NonModal allows interacting with Maya while dialog is open
         self.setWindowFlags(
-            QtCore.Qt.Tool |
+            QtCore.Qt.Dialog |
             QtCore.Qt.WindowCloseButtonHint
         )
+        self.setModal(False)
 
         self._build_ui()
 
@@ -265,13 +267,7 @@ class OptionsDialog(QtWidgets.QDialog):
             )
         else:
             # User cancelled - restore original color
-            self._api.register(
-                notification_id,
-                text=widgets["text"].text(),
-                color=self._preview_original_color,
-                enabled=True
-            )
-            self._api.refresh_all()
+            self._update_preview_color(notification_id, self._preview_original_color)
 
         # Hide the preview notification
         self._api.hide(notification_id)
@@ -279,7 +275,7 @@ class OptionsDialog(QtWidgets.QDialog):
         self._preview_original_color = None
 
     def _on_preview_color_changed(self, monitor_id, color):
-        """Update the notification preview with the new color."""
+        """Update the notification preview with the new color in real-time."""
         if not color.isValid():
             return
 
@@ -290,16 +286,22 @@ class OptionsDialog(QtWidgets.QDialog):
         notification_id = widgets["notification_id"]
         new_color = (color.red(), color.green(), color.blue())
 
-        # Update the notification registration with new color
-        self._api.register(
-            notification_id,
-            text=widgets["text"].text(),
-            color=new_color,
-            enabled=True
-        )
+        # Update the color in real-time
+        self._update_preview_color(notification_id, new_color)
 
-        # Refresh to show the new color
-        self._api.refresh_all()
+    def _update_preview_color(self, notification_id, color):
+        """
+        Directly update the notification color without triggering saved prefs reload.
+        This allows real-time preview while picking colors.
+        """
+        # Get the config dict and update color directly
+        config = self._config_store.get(notification_id)
+        if config:
+            # Update the config dict directly (bypasses _load_saved_prefs)
+            config["color"] = color
+
+            # Refresh all notifications to show the change
+            self._api.refresh_all()
 
     def _on_apply(self):
         """Apply all changes."""
@@ -316,7 +318,7 @@ class OptionsDialog(QtWidgets.QDialog):
                 enabled=True  # Notification itself is always enabled; monitor controls visibility
             )
 
-            # Update the config store
+            # Save to Maya optionVars for persistence
             self._config_store.set_text(notification_id, widgets["text"].text())
             self._config_store.set_color(notification_id, widgets["color"])
 
