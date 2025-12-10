@@ -11,6 +11,31 @@ from Qt import QtCore, QtGui, QtWidgets
 from . import monitors
 
 
+# Monitor metadata for display purposes
+MONITOR_INFO = {
+    "autokey_monitor": {
+        "title": "AutoKey Monitor",
+        "description": "Shows notification when AutoKey is disabled",
+        "notification_id": "autokey",
+    },
+    "scene_save_monitor": {
+        "title": "Scene Save Monitor",
+        "description": "Shows notification while scene is being saved",
+        "notification_id": "saving",
+    },
+    "undo_monitor": {
+        "title": "Undo Monitor",
+        "description": "Shows notification when Undo queue is disabled",
+        "notification_id": "undo",
+    },
+    "new_scene_monitor": {
+        "title": "Unsaved Changes Monitor",
+        "description": "Shows notification when scene has unsaved changes",
+        "notification_id": "unsaved",
+    },
+}
+
+
 class OptionsDialog(QtWidgets.QDialog):
     """Configuration dialog for notification and monitor settings."""
 
@@ -40,12 +65,18 @@ class OptionsDialog(QtWidgets.QDialog):
         self._api = notifier_api
         self._config_store = notifier_api.get_config()
         self._monitor_widgets = {}
-        self._notification_widgets = {}
 
         self.setObjectName(self.WINDOW_OBJECT_NAME)
         self.setWindowTitle(self.WINDOW_TITLE)
         self.setMinimumWidth(400)
-        self.setMinimumHeight(500)
+        self.setMinimumHeight(450)
+
+        # Keep window on top of Maya but non-modal
+        self.setWindowFlags(
+            QtCore.Qt.Window |
+            QtCore.Qt.WindowStaysOnTopHint |
+            QtCore.Qt.WindowCloseButtonHint
+        )
 
         self._build_ui()
 
@@ -53,17 +84,35 @@ class OptionsDialog(QtWidgets.QDialog):
         """Build the dialog UI."""
         layout = QtWidgets.QVBoxLayout(self)
 
-        # Create tab widget
-        tabs = QtWidgets.QTabWidget()
-        layout.addWidget(tabs)
+        # Header
+        header = QtWidgets.QLabel("Configure Notification Monitors")
+        header.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(header)
 
-        # Monitors tab
-        monitors_tab = self._build_monitors_tab()
-        tabs.addTab(monitors_tab, "Monitors")
+        desc = QtWidgets.QLabel(
+            "Enable monitors to automatically show notifications when Maya states change. "
+            "Customize the appearance of each notification below."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: gray; margin-bottom: 10px;")
+        layout.addWidget(desc)
 
-        # Notifications tab
-        notifications_tab = self._build_notifications_tab()
-        tabs.addTab(notifications_tab, "Appearance")
+        # Scrollable monitor list
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+        scroll_widget = QtWidgets.QWidget()
+        self._monitors_layout = QtWidgets.QVBoxLayout(scroll_widget)
+        self._monitors_layout.setSpacing(12)
+
+        # Add each available monitor with its notification settings
+        for monitor_id in monitors.get_all_monitor_ids():
+            self._add_monitor_widget(monitor_id)
+
+        self._monitors_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
 
         # Separator
         line = QtWidgets.QFrame()
@@ -85,164 +134,92 @@ class OptionsDialog(QtWidgets.QDialog):
 
         layout.addLayout(button_layout)
 
-    def _build_monitors_tab(self):
-        """Build the monitors configuration tab."""
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
+    def _add_monitor_widget(self, monitor_id):
+        """Add a configuration widget for a monitor and its notification."""
+        info = MONITOR_INFO.get(monitor_id, {})
+        title = info.get("title", monitor_id.replace("_", " ").title())
+        description = info.get("description", "")
+        notification_id = info.get("notification_id", monitor_id.replace("_monitor", ""))
 
-        # Header
-        header = QtWidgets.QLabel("Enable or disable state monitors:")
-        header.setStyleSheet("font-weight: bold;")
-        layout.addWidget(header)
+        # Get notification config if it exists
+        config = self._config_store.get(notification_id)
 
-        desc = QtWidgets.QLabel(
-            "Monitors watch Maya states and automatically show/hide notifications."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray; margin-bottom: 10px;")
-        layout.addWidget(desc)
+        group = QtWidgets.QGroupBox(title)
+        group_layout = QtWidgets.QVBoxLayout(group)
 
-        # Monitor list
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        # Top row: Enabled checkbox and description
+        top_layout = QtWidgets.QHBoxLayout()
 
-        scroll_widget = QtWidgets.QWidget()
-        scroll_layout = QtWidgets.QVBoxLayout(scroll_widget)
-        scroll_layout.setSpacing(8)
+        enabled_cb = QtWidgets.QCheckBox("Enabled")
+        is_installed = self._api.is_monitor_installed(monitor_id)
+        enabled_cb.setChecked(is_installed)
+        top_layout.addWidget(enabled_cb)
 
-        # Add each available monitor
-        monitor_info = {
-            "autokey_monitor": {
-                "title": "AutoKey Monitor",
-                "description": "Shows notification when AutoKey is disabled"
-            },
-            "scene_save_monitor": {
-                "title": "Scene Save Monitor",
-                "description": "Shows notification while scene is being saved"
-            },
-            "undo_monitor": {
-                "title": "Undo Monitor",
-                "description": "Shows notification when Undo queue is disabled"
-            },
-            "new_scene_monitor": {
-                "title": "Unsaved Changes Monitor",
-                "description": "Shows notification when scene has unsaved changes"
-            },
-        }
+        if description:
+            desc_label = QtWidgets.QLabel("- " + description)
+            desc_label.setStyleSheet("color: gray;")
+            top_layout.addWidget(desc_label)
 
-        for monitor_id in monitors.get_all_monitor_ids():
-            info = monitor_info.get(monitor_id, {})
-            title = info.get("title", monitor_id.replace("_", " ").title())
-            description = info.get("description", "")
+        top_layout.addStretch()
+        group_layout.addLayout(top_layout)
 
-            group = QtWidgets.QGroupBox(title)
-            group_layout = QtWidgets.QVBoxLayout(group)
+        # Notification settings (message and color)
+        settings_layout = QtWidgets.QHBoxLayout()
+        settings_layout.setContentsMargins(20, 5, 0, 0)  # Indent
 
-            # Enabled checkbox
-            enabled_cb = QtWidgets.QCheckBox("Enabled")
-            is_installed = self._api.is_monitor_installed(monitor_id)
-            enabled_cb.setChecked(is_installed)
-            group_layout.addWidget(enabled_cb)
-
-            # Description
-            if description:
-                desc_label = QtWidgets.QLabel(description)
-                desc_label.setStyleSheet("color: gray; font-size: 11px;")
-                desc_label.setWordWrap(True)
-                group_layout.addWidget(desc_label)
-
-            scroll_layout.addWidget(group)
-            self._monitor_widgets[monitor_id] = {
-                "enabled": enabled_cb
-            }
-
-        scroll_layout.addStretch()
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
-
-        return widget
-
-    def _build_notifications_tab(self):
-        """Build the notifications appearance tab."""
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-
-        # Header
-        header = QtWidgets.QLabel("Customize notification appearance:")
-        header.setStyleSheet("font-weight: bold;")
-        layout.addWidget(header)
-
-        # Notification type list
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-
-        scroll_widget = QtWidgets.QWidget()
-        self._notifications_layout = QtWidgets.QVBoxLayout(scroll_widget)
-        self._notifications_layout.setSpacing(10)
-
-        for type_id in self._config_store.get_all_types():
-            self._add_notification_widget(type_id)
-
-        self._notifications_layout.addStretch()
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
-
-        return widget
-
-    def _add_notification_widget(self, type_id):
-        """Add a configuration widget for a notification type."""
-        config = self._config_store.get(type_id)
-        if not config:
-            return
-
-        group = QtWidgets.QGroupBox(type_id.replace("_", " ").title())
-        group_layout = QtWidgets.QFormLayout(group)
-
-        # Enabled checkbox
-        enabled_cb = QtWidgets.QCheckBox()
-        enabled_cb.setChecked(config["enabled"])
-        group_layout.addRow("Show notification:", enabled_cb)
-
-        # Text field
+        # Message field
+        settings_layout.addWidget(QtWidgets.QLabel("Message:"))
         text_edit = QtWidgets.QLineEdit()
-        text_edit.setText(config["text"])
-        group_layout.addRow("Message:", text_edit)
+        text_edit.setFixedWidth(150)
+        if config:
+            text_edit.setText(config["text"])
+        else:
+            # Use default from monitor class
+            monitor_class = monitors.get_monitor_class(monitor_id)
+            if monitor_class:
+                text_edit.setText(monitor_class.DEFAULT_TEXT)
+        settings_layout.addWidget(text_edit)
+
+        settings_layout.addSpacing(20)
 
         # Color picker
-        color_layout = QtWidgets.QHBoxLayout()
-
+        settings_layout.addWidget(QtWidgets.QLabel("Color:"))
         color_btn = QtWidgets.QPushButton()
         color_btn.setFixedSize(60, 24)
-        r, g, b = config["color"]
+
+        if config:
+            r, g, b = config["color"]
+        else:
+            # Use default from monitor class
+            monitor_class = monitors.get_monitor_class(monitor_id)
+            if monitor_class:
+                r, g, b = monitor_class.DEFAULT_COLOR
+            else:
+                r, g, b = 255, 100, 100
+
         color_btn.setStyleSheet("background: rgb({}, {}, {});".format(r, g, b))
-        color_btn.clicked.connect(lambda checked, tid=type_id: self._pick_color(tid))
-        color_layout.addWidget(color_btn)
 
-        # Preview swatch
-        preview_label = QtWidgets.QLabel("  Preview")
-        preview_label.setStyleSheet(
-            "background: rgb({}, {}, {}); color: white; font-weight: bold; "
-            "padding: 2px 8px;".format(r, g, b)
+        # Fix: Use a wrapper function to avoid lambda issues
+        color_btn.clicked.connect(
+            lambda checked=False, mid=monitor_id: self._pick_color(mid)
         )
-        color_layout.addWidget(preview_label)
-        color_layout.addStretch()
+        settings_layout.addWidget(color_btn)
 
-        group_layout.addRow("Color:", color_layout)
+        settings_layout.addStretch()
+        group_layout.addLayout(settings_layout)
 
-        self._notifications_layout.addWidget(group)
-        self._notification_widgets[type_id] = {
+        self._monitors_layout.addWidget(group)
+        self._monitor_widgets[monitor_id] = {
             "enabled": enabled_cb,
             "text": text_edit,
             "color_btn": color_btn,
-            "preview": preview_label,
-            "color": config["color"]
+            "color": (r, g, b),
+            "notification_id": notification_id,
         }
 
-    def _pick_color(self, type_id):
-        """Open color picker for a notification type."""
-        widgets = self._notification_widgets.get(type_id)
+    def _pick_color(self, monitor_id):
+        """Open color picker for a monitor's notification."""
+        widgets = self._monitor_widgets.get(monitor_id)
         if not widgets:
             return
 
@@ -257,30 +234,33 @@ class OptionsDialog(QtWidgets.QDialog):
             widgets["color_btn"].setStyleSheet(
                 "background: rgb({}, {}, {});".format(r, g, b)
             )
-            widgets["preview"].setStyleSheet(
-                "background: rgb({}, {}, {}); color: white; font-weight: bold; "
-                "padding: 2px 8px;".format(r, g, b)
-            )
 
     def _on_apply(self):
         """Apply all changes."""
-        # Apply monitor changes
         for monitor_id, widgets in self._monitor_widgets.items():
             should_be_enabled = widgets["enabled"].isChecked()
             is_enabled = self._api.is_monitor_installed(monitor_id)
+            notification_id = widgets["notification_id"]
 
+            # Ensure notification type is registered with current settings
+            self._api.register(
+                notification_id,
+                text=widgets["text"].text(),
+                color=widgets["color"],
+                enabled=True  # Notification itself is always enabled; monitor controls visibility
+            )
+
+            # Update the config store
+            self._config_store.set_text(notification_id, widgets["text"].text())
+            self._config_store.set_color(notification_id, widgets["color"])
+
+            # Install or uninstall monitor
             if should_be_enabled and not is_enabled:
                 self._api.install_monitor(monitor_id)
             elif not should_be_enabled and is_enabled:
                 self._api.uninstall_monitor(monitor_id)
 
-        # Apply notification appearance changes
-        for type_id, widgets in self._notification_widgets.items():
-            self._config_store.set_enabled(type_id, widgets["enabled"].isChecked())
-            self._config_store.set_text(type_id, widgets["text"].text())
-            self._config_store.set_color(type_id, widgets["color"])
-
-        # Refresh all active notifications
+        # Refresh all active notifications to show new colors/text
         self._api.refresh_all()
 
         api.MGlobal.displayInfo("Notifier: Settings applied.")
