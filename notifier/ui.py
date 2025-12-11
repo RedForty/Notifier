@@ -36,21 +36,6 @@ MONITOR_INFO = {
 }
 
 
-class StayOnTopFilter(QtCore.QObject):
-    """Event filter to keep child window on top of parent."""
-
-    def __init__(self, child_window):
-        super(StayOnTopFilter, self).__init__()
-        self._child = child_window
-
-    def eventFilter(self, obj, event):
-        # When parent window is activated, raise our child window
-        if event.type() == QtCore.QEvent.WindowActivate:
-            if self._child and self._child.isVisible():
-                self._child.raise_()
-        return False
-
-
 class OptionsDialog(QtWidgets.QDialog):
     """Configuration dialog for notification and monitor settings."""
 
@@ -63,7 +48,7 @@ class OptionsDialog(QtWidgets.QDialog):
 
         Args:
             notifier_api: The notifier module/API
-            parent (QWidget): Optional parent widget
+            parent (QWidget): Optional parent widget (should be Maya main window)
         """
         # Delete existing window if it exists
         existing = None
@@ -82,31 +67,19 @@ class OptionsDialog(QtWidgets.QDialog):
         self._monitor_widgets = {}
         self._preview_notification_id = None
         self._preview_original_color = None
-        self._stay_on_top_filter = None
 
         self.setObjectName(self.WINDOW_OBJECT_NAME)
         self.setWindowTitle(self.WINDOW_TITLE)
         self.setMinimumWidth(400)
         self.setMinimumHeight(450)
 
-        # Use Qt.Window so it's a proper window, non-modal
+        # Standard flags for a dialog parented to Maya - stays above parent automatically
         self.setWindowFlags(
             QtCore.Qt.Window |
             QtCore.Qt.WindowCloseButtonHint
         )
 
-        # Install event filter on parent to keep us on top when Maya is clicked
-        if parent:
-            self._stay_on_top_filter = StayOnTopFilter(self)
-            parent.installEventFilter(self._stay_on_top_filter)
-
         self._build_ui()
-
-    def closeEvent(self, event):
-        """Clean up event filter when closing."""
-        if self._stay_on_top_filter and self.parent():
-            self.parent().removeEventFilter(self._stay_on_top_filter)
-        super(OptionsDialog, self).closeEvent(event)
 
     def _build_ui(self):
         """Build the dialog UI."""

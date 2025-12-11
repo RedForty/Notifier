@@ -309,18 +309,26 @@ def refresh_all():
 # Public API - Options UI
 # =============================================================================
 
+_options_dialog = None  # Global reference to prevent garbage collection
+
+
 def show_options():
     """
     Show the options dialog for configuring notifications and monitors.
+
+    Returns:
+        OptionsDialog: The dialog instance
     """
+    global _options_dialog
     from .ui import OptionsDialog
     import notifier
 
     _ensure_managers()
 
     parent = get_maya_main_window()
-    dialog = OptionsDialog(notifier, parent)
-    dialog.show()
+    _options_dialog = OptionsDialog(notifier, parent)
+    _options_dialog.show()
+    return _options_dialog
 
 
 # =============================================================================
