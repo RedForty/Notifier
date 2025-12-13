@@ -202,49 +202,99 @@ class SceneSaveMonitor(BaseMonitor):
 # Undo Monitor
 # =============================================================================
 
+# Module-level function for the UndoNorRedo condition evaluation
+def _is_undo_nor_redo():
+    """
+    Returns True when undo is disabled.
+    Used as the state function for the UndoNorRedo condition.
+    """
+    # Check if undo is actually disabled via undoInfo
+    if not cmds.undoInfo(query=True, state=True):
+        return True
+    # Undo is enabled
+    return False
+
+
 class UndoMonitor(BaseMonitor):
     """
     Monitors the undo queue state and shows a notification when undo is disabled.
+
+    Uses a custom Maya condition 'UndoNorRedo' that depends on both UndoAvailable
+    and RedoAvailable conditions to accurately detect when undo is off.
     """
 
     MONITOR_ID = "undo_monitor"
     NOTIFICATION_ID = "undo"
     DEFAULT_TEXT = "Undo is OFF"
     DEFAULT_COLOR = (255, 165, 0)  # Orange
+    CONDITION_NAME = "UndoNorRedo"
 
     def _install_callbacks(self):
-        """Install scriptJob to monitor undo state changes."""
-        # Use an event that fires when undo state might change
-        # We'll check undo state on various events
-        job = cmds.scriptJob(
-            event=["SceneOpened", self._check_undo_state]
-        )
-        self._script_jobs.append(job)
+        """Install the UndoNorRedo condition and scriptJobs to monitor undo state."""
+        # Clean up any existing condition first
+        self._delete_condition()
 
-        job2 = cmds.scriptJob(
-            event=["NewSceneOpened", self._check_undo_state]
+        # Create the custom condition that evaluates to True when undo is off
+        # The condition depends on UndoAvailable and RedoAvailable
+        cmds.condition(
+            self.CONDITION_NAME,
+            initialize=True,
+            d=['UndoAvailable', 'RedoAvailable'],
+            s='python("from notifier.monitors import _is_undo_nor_redo; _is_undo_nor_redo()")'
         )
-        self._script_jobs.append(job2)
 
-        # Also install a callback for undo queue flush
-        cb = om.MEventMessage.addEventCallback("undoSupressed", self._on_undo_changed)
-        self._callbacks.append(cb)
+        # conditionFalse: fires when UndoNorRedo becomes False (undo is ON) -> hide notification
+        job_off = cmds.scriptJob(
+            conditionFalse=[self.CONDITION_NAME, self._on_undo_on]
+        )
+        self._script_jobs.append(job_off)
+
+        # conditionTrue: fires when UndoNorRedo becomes True (undo is OFF) -> show notification
+        job_on = cmds.scriptJob(
+            conditionTrue=[self.CONDITION_NAME, self._on_undo_off]
+        )
+        self._script_jobs.append(job_on)
+
+        # Also monitor Undo event to catch when undo state might have changed
+        # This helps detect undoInfo toggles more quickly
+        job_undo = cmds.scriptJob(event=["Undo", self._check_undo_state])
+        self._script_jobs.append(job_undo)
+
+        job_redo = cmds.scriptJob(event=["Redo", self._check_undo_state])
+        self._script_jobs.append(job_redo)
+
+    def _uninstall_callbacks(self):
+        """Uninstall callbacks and delete the custom condition."""
+        # Call parent to remove scriptJobs and callbacks
+        super(UndoMonitor, self)._uninstall_callbacks()
+        # Delete the custom condition
+        self._delete_condition()
+
+    def _delete_condition(self):
+        """Safely delete the UndoNorRedo condition if it exists."""
+        try:
+            cmds.condition(self.CONDITION_NAME, delete=True)
+        except Exception:
+            pass  # Condition doesn't exist, which is fine
 
     def _check_initial_state(self):
-        """Check current undo state."""
+        """Check current undo state using the condition logic."""
         self._check_undo_state()
 
     def _check_undo_state(self, *args):
-        """Check if undo is currently enabled."""
-        is_enabled = cmds.undoInfo(query=True, state=True)
-        if not is_enabled:
+        """Check undo state and show/hide notification accordingly."""
+        if _is_undo_nor_redo():
             self._show()
         else:
             self._hide()
 
-    def _on_undo_changed(self, *args):
-        """Called when undo state changes."""
-        self._check_undo_state()
+    def _on_undo_on(self):
+        """Called when undo becomes available (UndoNorRedo is False)."""
+        self._hide()
+
+    def _on_undo_off(self):
+        """Called when undo becomes unavailable (UndoNorRedo is True)."""
+        self._show()
 
 
 # =============================================================================
