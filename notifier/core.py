@@ -11,6 +11,7 @@ from __future__ import print_function, division
 
 from maya import cmds
 import maya.api.OpenMayaUI as apiui
+import maya.OpenMayaUI as omui
 from Qt import QtCore, QtWidgets, QtCompat
 
 
@@ -490,7 +491,7 @@ def get_maya_main_window():
         QWidget or None: Maya's main window widget
     """
     try:
-        main_window_ptr = apiui.MQtUtil.mainWindow()
+        main_window_ptr = omui.MQtUtil.mainWindow()
         return QtCompat.wrapInstance(int(main_window_ptr), QtWidgets.QWidget)
     except Exception:
         return None
