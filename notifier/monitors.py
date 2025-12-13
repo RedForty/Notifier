@@ -205,10 +205,14 @@ class SceneSaveMonitor(BaseMonitor):
 # Module-level function for the UndoNorRedo condition evaluation
 def _is_undo_nor_redo():
     """
-    Returns True when neither undo nor redo is available.
+    Returns True when undo is disabled.
     Used as the state function for the UndoNorRedo condition.
     """
-    return not cmds.isTrue('UndoAvailable') and not cmds.isTrue('RedoAvailable')
+    # Check if undo is actually disabled via undoInfo
+    if not cmds.undoInfo(query=True, state=True):
+        return True
+    # Undo is enabled
+    return False
 
 
 class UndoMonitor(BaseMonitor):
@@ -251,6 +255,14 @@ class UndoMonitor(BaseMonitor):
         )
         self._script_jobs.append(job_on)
 
+        # Also monitor Undo event to catch when undo state might have changed
+        # This helps detect undoInfo toggles more quickly
+        job_undo = cmds.scriptJob(event=["Undo", self._check_undo_state])
+        self._script_jobs.append(job_undo)
+
+        job_redo = cmds.scriptJob(event=["Redo", self._check_undo_state])
+        self._script_jobs.append(job_redo)
+
     def _uninstall_callbacks(self):
         """Uninstall callbacks and delete the custom condition."""
         # Call parent to remove scriptJobs and callbacks
@@ -267,8 +279,14 @@ class UndoMonitor(BaseMonitor):
 
     def _check_initial_state(self):
         """Check current undo state using the condition logic."""
+        self._check_undo_state()
+
+    def _check_undo_state(self, *args):
+        """Check undo state and show/hide notification accordingly."""
         if _is_undo_nor_redo():
             self._show()
+        else:
+            self._hide()
 
     def _on_undo_on(self):
         """Called when undo becomes available (UndoNorRedo is False)."""
