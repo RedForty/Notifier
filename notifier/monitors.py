@@ -208,12 +208,7 @@ def _is_undo_nor_redo():
     Returns True when undo is disabled.
     Used as the state function for the UndoNorRedo condition.
     """
-    # Check if undo is actually disabled via undoInfo
-    if not cmds.undoInfo(query=True, state=True):
-        return True
-    # Undo is enabled
-    return False
-
+    return not cmds.isTrue('UndoAvailable') and not cmds.isTrue('RedoAvailable')
 
 class UndoMonitor(BaseMonitor):
     """
